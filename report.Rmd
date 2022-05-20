@@ -1,28 +1,102 @@
 ---
-title: "Final Project Proposal"
+title: "碳排放管理對於企業股價之影響"
 author: "Blake Lin"
 date: "5/17/2022"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(readxl)
-knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(tidyverse)
+library(rpart)
+library(rpart.plot)
+library(rsample) 
+library(randomForest)
+library(modelr)
+
 esg_df<- read_excel("data/ACWI-ESG-Results_1.xlsx")
 esg_uni_df <-read_excel("data/ACWI-ESG-Universal-Results_1.xlsx")
+
+# override the default setting of ggplot
+theme_set(theme_minimal())
 ```
 
-## R Markdown
+## 研究方法
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+利用MSCI ACWI Europe ESG Leaders Index 中的個股與其碳排管理指標，進行單因子迴歸分析，以探討「碳排管理是否能帶來超額報酬」之課題。由於產業間業務性質差異甚大，因此也會將個股按照產業區分，以達到產業中立之目的。
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-這裡可以打中文嗎
+## 研究動機
 
-```{r cars}
-summary(cars)
+分析師報告中證實MSCI ACWI ESG Leaders Index的確在2020年疫情爆發之後較MSCI ACWI Index取得相對好的報酬。近期歐盟祭出2050年碳中和目標與一系列政策，企業因此面臨低碳轉型風險，因此我們希望將樣本池鎖定歐盟企業，且著重於ESG中的碳排放管理指標，期許能夠針對這個課題得出一些新發現。
+
+```{r data cleaning, echo=FALSE}
+esg_eu_df = esg_df %>% filter(ISSUER_CNTRY_DOMICILE %in% c("AT", "BE", "BG", "HR", "CY", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL","PT","RO", "SK", "SI", "ES", "SE"))
+
+carb_heavy_df = esg_df %>% filter(Industry %in% c("Materials", "Utilities", "Energy", "Industrial"))
+
+carb_light_df = esg_df %>% 
+  filter(!Industry %in% c("Materials", "Utilities", "Energy", "Industrial")) 
+
+carb_light_df <- carb_light_df[!is.na(as.numeric(carb_light_df$TotalReturn_2y)), ]
+carb_heavy_df <- carb_heavy_df[!is.na(as.numeric(carb_heavy_df$TotalReturn_2y)), ]
+
+# split the data into train/test 
+set.seed(100)
+heavy_split = initial_split(carb_heavy_df, prop = 0.9)
+heavy_train = training(heavy_split)
+heavy_test = testing(heavy_split)
+
+light_split = initial_split(carb_light_df, prop = 0.9)
+light_train = training(light_split)
+light_test = testing(light_split)
+
 ```
+
+
+
+```{r all models, echo=FALSE}
+#LINEAR REGRESSION
+# use 2y as a try, can switch out Y variable, and/or take out "Industry"
+lr_heavy = lm(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = heavy_train)
+
+lr_light = lm(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = light_train, na.action=na.omit)
+
+
+# RANDOM FOREST
+forest_heavy = randomForest(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = heavy_train, na.action=na.omit, importance = TRUE)
+
+forest_light = randomForest(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = light_train, na.action=na.omit, importance = TRUE)
+
+
+
+# report
+summary(lr_heavy)
+summary(lr_light)
+print(forest_heavy)
+print(forest_light)
+```
+
+
+
+```{r lr evaluation, echo=FALSE}
+heavy.graph<-ggplot(carb_heavy_df, aes(x=CARBON_EMISSIONS_SCORE, y=TotalReturn_2y))+
+                     geom_point()+ geom_smooth(method="lm", col="red")+ xlim(0, 10)
+
+light.graph<-ggplot(carb_light_df, aes(x=CARBON_EMISSIONS_SCORE, y=TotalReturn_2y))+
+                     geom_point()+ geom_smooth(method="lm", col="red") + xlim(0, 10)
+
+heavy.graph
+light.graph
+```
+
+
+
+
+
+
 
 ## Including Plots
 
@@ -32,4 +106,4 @@ You can also embed plots, for example:
 plot(pressure)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
