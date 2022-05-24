@@ -1,12 +1,16 @@
 ---
 title: "碳排放管理對於企業股價之影響"
-author: "Blake Lin"
+author: "Names _____"
 date: "5/17/2022"
 output: html_document
 ---
+<style>
+    body { background-color: #A9CAAB; }
+    pre, pre:not([class]) { background-color: gainsboro; }
+</style>
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 library(tidyverse)
 library(readxl)
 library(caret)
@@ -16,6 +20,11 @@ library(rpart.plot)
 library(rsample) 
 library(randomForest)
 library(modelr)
+library(corrplot)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(DT)
 
 esg_df<- read_excel("data/ACWI-ESG-Results_1.xlsx")
 esg_uni_df <-read_excel("data/ACWI-ESG-Universal-Results_1.xlsx")
@@ -32,7 +41,7 @@ theme_set(theme_minimal())
 
 分析師報告中證實MSCI ACWI ESG Leaders Index的確在2020年疫情爆發之後較MSCI ACWI Index取得相對好的報酬。近期歐盟祭出2050年碳中和目標與一系列政策，企業因此面臨低碳轉型風險，因此我們希望將樣本池鎖定歐盟企業，且著重於ESG中的碳排放管理指標，期許能夠針對這個課題得出一些新發現。
 
-```{r data cleaning, echo=FALSE}
+```{r data cleaning, echo=FALSE, warning=FALSE}
 esg_eu_df = esg_df %>% filter(ISSUER_CNTRY_DOMICILE %in% c("AT", "BE", "BG", "HR", "CY", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL","PT","RO", "SK", "SI", "ES", "SE"))
 
 carb_heavy_df = esg_df %>% filter(Industry %in% c("Materials", "Utilities", "Energy", "Industrial"))
@@ -40,8 +49,10 @@ carb_heavy_df = esg_df %>% filter(Industry %in% c("Materials", "Utilities", "Ene
 carb_light_df = esg_df %>% 
   filter(!Industry %in% c("Materials", "Utilities", "Energy", "Industrial")) 
 
-carb_light_df <- carb_light_df[!is.na(as.numeric(carb_light_df$TotalReturn_2y)), ]
-carb_heavy_df <- carb_heavy_df[!is.na(as.numeric(carb_heavy_df$TotalReturn_2y)), ]
+# chnage "return" variables from character to double
+carb_heavy_df[, c(31:33)] <- sapply(carb_heavy_df[, c(31:33)], as.numeric)
+carb_light_df[, c(31:33)] <- sapply(carb_light_df[, c(31:33)], as.numeric)
+esg_eu_df[, c(31:33)] <- sapply(esg_eu_df[, c(31:33)], as.numeric)
 
 # split the data into train/test 
 set.seed(100)
@@ -56,54 +67,168 @@ light_test = testing(light_split)
 ```
 
 
+## 分析與結果
 
-```{r all models, echo=FALSE}
-#LINEAR REGRESSION
+### Exploratory Data Analysis
+
+(說明)
+
+
+
+```{r eda, echo=FALSE, warning=FALSE, message=FALSE}
+heavy.graph <- ggplot(carb_heavy_df, aes(x=CARBON_EMISSIONS_SCORE, y=TotalReturn_2y))+
+  geom_point() + geom_smooth(method="lm", col="red") + ylim(-10, 1000)+ 
+  ggtitle("Correlation of Emission Score to Return - Carbon Heavy Industries") + 
+  labs(y = "Total Return Rate - 2 years", x = "Carbon Emission Score",) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+light.graph <- ggplot(carb_light_df, aes(x=CARBON_EMISSIONS_SCORE, y=TotalReturn_2y))+
+  geom_point()+ geom_smooth(method="lm", col="red") + ylim(-10, 1000)+ 
+  ggtitle("Correlation of Emission Score to Return - Carbon Light Industries") + 
+  labs(y = "Total Return Rate - 2 years", x = "Carbon Emission Score",) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+
+# map plot
+map_eu = esg_eu_df %>%
+  group_by(ISSUER_CNTRY_DOMICILE) %>%
+  summarise(avg_score = mean(CARBON_EMISSIONS_SCORE))
+
+map_eu$country = c("Austria","Belgium","Germany","Denmark","Spain","Finland","France","Greece","Hungry", "Ireland","Italy","Luxembourg","Netherlands","Poland","Portugal","Sweden")
+
+world_map <- ne_countries(scale = 50, returnclass = 'sf')
+european_union <- c("Austria","Belgium","Bulgaria","Croatia","Cyprus",
+                    "Czech Rep.","Denmark","Estonia","Finland","France",
+                    "Germany","Greece","Hungary","Ireland","Italy","Latvia",
+                    "Lithuania","Luxembourg","Malta","Netherlands","Poland",
+                    "Portugal","Romania","Slovakia","Slovenia","Spain",
+                    "Sweden","United Kingdom")
+
+european_union_map <- world_map %>% 
+  filter(name %in% european_union)
+
+bbox_europe <- st_bbox(c(xmin = -10, ymin = 20, xmax = 50, ymax = 80), crs = st_crs(european_union_map))
+european_union_map_cropped <- st_crop(european_union_map, bbox_europe)
+
+map <- european_union_map_cropped %>% 
+  left_join(map_eu, by = c("name" = "country"))
+
+map.graph <- ggplot(data = map) +
+  geom_sf(mapping = aes(fill = avg_score)) +
+  scale_fill_gradient(name = "Carbon Emission Score", high = "#FF0000FF", low = "#FFFF00FF", na.value = "grey50")+ 
+  ggtitle("Carbon Emission Score Across EU") + 
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+showtable_df = esg_eu_df %>%
+  select(TotalReturn_2y, Industry,CARBON_EMISSIONS_SCORE,IVA_COMPANY_RATING, INDUSTRY_ADJUSTED_SCORE,GOVERNANCE_PILLAR_SCORE)
+
+# showing the data frame - important variables 
+datatable(showtable_df, options = list(pageLength = 5))
+```
+
+
+#### 1. Correlation Plots
+
+(說明)
+
+
+
+```{r corr plots, echo=FALSE, warning=FALSE}
+# showing plots
+heavy.graph
+light.graph
+```
+
+#### 2. Avergae Emission Score Across EU
+
+(說明)
+
+```{r map plot, echo=FALSE, warning=FALSE}
+map.graph
+```
+
+
+
+
+
+### Modeling 
+First, seperate data into carbon heavy industries (those 4), and carbon light industries
+I used two models here, linear regression and random forest, you guys can compare the performance of both models
+
+
+(說明) might want to show how you build model, what varibles you included 
+
+
+
+```{r all models, echo=FALSE, warning=FALSE}
+#######
+# linear regression 
+#######
 # use 2y as a try, can switch out Y variable, and/or take out "Industry"
 lr_heavy = lm(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = heavy_train)
 
 lr_light = lm(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = light_train, na.action=na.omit)
 
+#######
+# random forest
+#######
 
-# RANDOM FOREST
-forest_heavy = randomForest(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = heavy_train, na.action=na.omit, importance = TRUE)
+forest_heavy = randomForest(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = heavy_train, control = rpart.control(cp = 0.002, minsplit=30), importance = TRUE)
 
-forest_light = randomForest(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = light_train, na.action=na.omit, importance = TRUE)
+forest_light = randomForest(TotalReturn_2y ~ IVA_COMPANY_RATING + INDUSTRY_ADJUSTED_SCORE + GOVERNANCE_PILLAR_SCORE + CARBON_EMISSIONS_SCORE + Industry, data = light_train, control = rpart.control(cp = 0.002, minsplit=30), importance = TRUE, na.action=na.omit)
+
+# out-of-sample test 
+p_heavy<- predict(lr_heavy, heavy_test)
+p_light<- predict(lr_light, light_test)
+
+# Compute errors: error
+error_heavy <- p_heavy - heavy_test[["TotalReturn_2y"]]
+error_light <- p_heavy - heavy_test[["TotalReturn_2y"]]
+
+# Calculate RMSE
+rmse_lm_h =sqrt(mean(error_heavy^2))
+rmse_lm_l =sqrt(mean(error_light^2))
+
+rmse_forest_h = rmse(forest_heavy, heavy_test) 
+rmse_forest_l = rmse(forest_light, light_test) 
+```
+
+#### Model Results {.tabset}
+##### 1. Linear Model Result
+
+(說明)
 
 
-
-# report
+```{r model report, echo=FALSE, warning=FALSE}
 summary(lr_heavy)
 summary(lr_light)
+```
+
+##### 2. Random Forest Result
+
+
+(說明)
+
+```{r model report-2, echo=FALSE, warning=FALSE}
 print(forest_heavy)
 print(forest_light)
 ```
 
 
+##### 3. Compare Out-of-Sample Performance
 
-```{r lr evaluation, echo=FALSE}
-heavy.graph<-ggplot(carb_heavy_df, aes(x=CARBON_EMISSIONS_SCORE, y=TotalReturn_2y))+
-                     geom_point()+ geom_smooth(method="lm", col="red")+ xlim(0, 10)
+(說明)
+you can use `rmse_lm_h` to show the variable 
 
-light.graph<-ggplot(carb_light_df, aes(x=CARBON_EMISSIONS_SCORE, y=TotalReturn_2y))+
-                     geom_point()+ geom_smooth(method="lm", col="red") + xlim(0, 10)
 
-heavy.graph
-light.graph
+```{r rmse, echo=FALSE, warning=FALSE}
+rmse_lm_h
+rmse_lm_l
+rmse_forest_h
+rmse_forest_l
 ```
 
 
 
-
-
-
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-
+### Conclusion
+(說明)
