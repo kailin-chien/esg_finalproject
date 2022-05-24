@@ -131,11 +131,16 @@ datatable(showtable_df, options = list(pageLength = 5))
 
 (說明)
 
-
-
-```{r corr plots, echo=FALSE, warning=FALSE}
+```{r corr plots-1, echo=FALSE, warning=FALSE}
 # showing plots
 heavy.graph
+```
+
+
+(說明)
+
+```{r corr plots-2, echo=FALSE, warning=FALSE}
+# showing plots
 light.graph
 ```
 
